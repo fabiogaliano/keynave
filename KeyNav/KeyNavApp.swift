@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import Carbon
 
 @main
 struct KeyNavApp: App {
@@ -73,6 +74,8 @@ struct SettingsOpenerView: View {
 extension Notification.Name {
     static let openSettingsRequest = Notification.Name("openSettingsRequest")
     static let settingsWindowClosed = Notification.Name("settingsWindowClosed")
+    static let disableGlobalHotkeys = Notification.Name("disableGlobalHotkeys")
+    static let enableGlobalHotkeys = Notification.Name("enableGlobalHotkeys")
 }
 
 // MARK: - App Delegate
@@ -81,17 +84,31 @@ extension Notification.Name {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var hintModeController: HintModeController?
+    private var scrollModeController: ScrollModeController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register default values
         UserDefaults.standard.register(defaults: [
+            "hintShortcutKeyCode": 49, // Space key
+            "hintShortcutModifiers": cmdKey | shiftKey,
             "hintSize": 12.0,
             "hintColor": "blue",
-            "continuousClickMode": false
+            "continuousClickMode": false,
+            "scrollShortcutKeyCode": 14, // E key
+            "scrollShortcutModifiers": optionKey,
+            "scrollArrowMode": "select",
+            "showScrollAreaNumbers": true,
+            "scrollKeys": "hjkl",
+            "scrollCommandsEnabled": true,
+            "scrollSpeed": 5.0,
+            "dashSpeed": 9.0,
+            "autoScrollDeactivation": true,
+            "scrollDeactivationDelay": 5.0
         ])
 
         setupMenuBar()
         setupHintMode()
+        setupScrollMode()
         checkAccessibilityPermissions()
     }
 
@@ -104,6 +121,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Activate Hints (⌘⇧Space)", action: #selector(activateHints), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Activate Scroll (⌥E)", action: #selector(activateScroll), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
@@ -117,6 +135,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hintModeController?.registerGlobalHotkey()
     }
 
+    private func setupScrollMode() {
+        scrollModeController = ScrollModeController()
+        scrollModeController?.registerGlobalHotkey()
+    }
+
     private func checkAccessibilityPermissions() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         let trusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
@@ -128,6 +151,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func activateHints() {
         hintModeController?.toggleHintMode()
+    }
+
+    @objc private func activateScroll() {
+        scrollModeController?.toggleScrollMode()
     }
 
     @objc private func openPreferences() {

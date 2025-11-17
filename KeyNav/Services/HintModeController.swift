@@ -35,19 +35,41 @@ class HintModeController {
     func registerGlobalHotkey() {
         HintModeController.sharedInstance = self
 
-        // Register Cmd+Shift+Space
+        // Listen for hotkey disable/enable notifications
+        NotificationCenter.default.addObserver(
+            forName: .disableGlobalHotkeys,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.unregisterHotkey()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .enableGlobalHotkeys,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.registerHotkeyInternal()
+        }
+
+        registerHotkeyInternal()
+    }
+
+    private func registerHotkeyInternal() {
+        // Don't register if already registered
+        guard hotKeyRef == nil else { return }
+
+        let keyCode = UserDefaults.standard.integer(forKey: "hintShortcutKeyCode")
+        let modifiers = UserDefaults.standard.integer(forKey: "hintShortcutModifiers")
+
         var hotKeyID = EventHotKeyID()
         hotKeyID.signature = OSType("KNAV".utf8.reduce(0) { ($0 << 8) + OSType($1) })
         hotKeyID.id = 1
 
-        // Key code for Space is 49
-        // Modifiers: cmdKey = 256, shiftKey = 512
-        let modifiers: UInt32 = UInt32(cmdKey | shiftKey)
-
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
         // Install event handler
-        InstallEventHandler(GetApplicationEventTarget(), { (_, event, userData) -> OSStatus in
+        InstallEventHandler(GetApplicationEventTarget(), { (_, _, userData) -> OSStatus in
             guard let userData = userData else { return OSStatus(eventNotHandledErr) }
             let controller = Unmanaged<HintModeController>.fromOpaque(userData).takeUnretainedValue()
 
@@ -57,7 +79,14 @@ class HintModeController {
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
 
-        RegisterEventHotKey(49, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+    }
+
+    private func unregisterHotkey() {
+        if let hotKeyRef = hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
     }
 
     func toggleHintMode() {
