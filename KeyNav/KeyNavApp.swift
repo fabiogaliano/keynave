@@ -6,27 +6,70 @@
 //
 
 import SwiftUI
-import SwiftData
+import AppKit
 
 @main
 struct KeyNavApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            PreferencesView()
         }
-        .modelContainer(sharedModelContainer)
+    }
+}
+
+@MainActor
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem?
+    private var hintModeController: HintModeController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMenuBar()
+        setupHintMode()
+        checkAccessibilityPermissions()
+    }
+
+    private func setupMenuBar() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyNav")
+        }
+
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Activate Hints (⌘⇧Space)", action: #selector(activateHints), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit KeyNav", action: #selector(quitApp), keyEquivalent: "q"))
+
+        statusItem?.menu = menu
+    }
+
+    private func setupHintMode() {
+        hintModeController = HintModeController()
+        hintModeController?.registerGlobalHotkey()
+    }
+
+    private func checkAccessibilityPermissions() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        let trusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
+
+        if !trusted {
+            print("Accessibility permissions not granted. Please enable in System Preferences.")
+        }
+    }
+
+    @objc private func activateHints() {
+        hintModeController?.toggleHintMode()
+    }
+
+    @objc private func openPreferences() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 }

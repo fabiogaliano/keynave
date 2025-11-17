@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:homerow.app)",
+      "WebFetch(domain:shortcat.app)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gaitatzis.medium.com)",
+      "WebFetch(domain:stackoverflow.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
