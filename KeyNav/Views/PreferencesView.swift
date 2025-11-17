@@ -15,6 +15,9 @@ struct PreferencesView: View {
     @AppStorage("hintSize") private var hintSize: Double = 12
     @AppStorage("hintColor") private var hintColor: String = "blue"
     @AppStorage("continuousClickMode") private var continuousClickMode: Bool = false
+    @AppStorage("hintCharacters") private var hintCharacters: String = "asdfhjkl"
+    @AppStorage("textSearchEnabled") private var textSearchEnabled: Bool = true
+    @AppStorage("minSearchCharacters") private var minSearchCharacters: Int = 2
 
     // Scroll Mode Settings
     @AppStorage("scrollShortcutKeyCode") private var scrollShortcutKeyCode: Int = 14 // E
@@ -60,8 +63,48 @@ struct PreferencesView: View {
                         modifiers: $hintShortcutModifiers
                     )
                 }
-                Text("ESC - Cancel Hint Mode")
+                Text("ESC - Cancel | Option - Clear search | Ctrl+Enter - Right-click")
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Hint Characters") {
+                HStack {
+                    HStack(spacing: 4) {
+                        Text("Characters")
+                        helpButton(text: "Characters used to generate hints. Default is home row keys (asdfhjkl). With 8 characters, you get 64 two-letter combinations.")
+                    }
+                    Spacer()
+                    TextField("", text: $hintCharacters)
+                        .frame(width: 120)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.center)
+                }
+                Text("Current: \(hintCharacters.count) chars = \(hintCharacters.count * hintCharacters.count) two-letter combos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Text Search") {
+                HStack {
+                    HStack(spacing: 4) {
+                        Text("Enable text search")
+                        helpButton(text: "Search UI elements by their text content. Type element names to find and click them.")
+                    }
+                    Spacer()
+                    Toggle("", isOn: $textSearchEnabled)
+                }
+
+                if textSearchEnabled {
+                    HStack {
+                        HStack(spacing: 4) {
+                            Text("Minimum characters")
+                            helpButton(text: "Number of characters required before text search activates. Auto-clicks when exactly one match remains.")
+                        }
+                        Spacer()
+                        Stepper("\(minSearchCharacters)", value: $minSearchCharacters, in: 1...5)
+                            .frame(width: 80)
+                    }
+                }
             }
 
             Section("Behavior") {

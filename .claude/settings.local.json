@@ -8,7 +8,8 @@
       "WebFetch(domain:gaitatzis.medium.com)",
       "WebFetch(domain:stackoverflow.com)",
       "WebFetch(domain:steipete.me)",
-      "WebFetch(domain:www.homerow.app)"
+      "WebFetch(domain:www.homerow.app)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [],
     "ask": []

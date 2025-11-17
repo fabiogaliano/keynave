@@ -76,8 +76,29 @@ class ScrollModeController {
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
-        InstallEventHandler(GetApplicationEventTarget(), { (_, _, userData) -> OSStatus in
-            guard let userData = userData else { return OSStatus(eventNotHandledErr) }
+        InstallEventHandler(GetApplicationEventTarget(), { (_, event, userData) -> OSStatus in
+            guard let userData = userData, let event = event else { return OSStatus(eventNotHandledErr) }
+
+            // Extract the hotkey ID from the event to check if this is our hotkey
+            var pressedHotKeyID = EventHotKeyID()
+            let err = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &pressedHotKeyID
+            )
+
+            guard err == noErr else { return OSStatus(eventNotHandledErr) }
+
+            // Check if this is the scroll mode hotkey (signature: "KSCR", id: 2)
+            let expectedSignature = OSType("KSCR".utf8.reduce(0) { ($0 << 8) + OSType($1) })
+            guard pressedHotKeyID.signature == expectedSignature && pressedHotKeyID.id == 2 else {
+                return OSStatus(eventNotHandledErr) // Not our hotkey, let other handlers process
+            }
+
             let controller = Unmanaged<ScrollModeController>.fromOpaque(userData).takeUnretainedValue()
 
             Task { @MainActor in
