@@ -85,6 +85,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var hintModeController: HintModeController?
     private var scrollModeController: ScrollModeController?
+    private var hintMenuItem: NSMenuItem?
+    private var scrollMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register default values
@@ -120,14 +122,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Activate Hints (⌘⇧Space)", action: #selector(activateHints), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Activate Scroll (⌥E)", action: #selector(activateScroll), keyEquivalent: ""))
+
+        hintMenuItem = NSMenuItem(title: formatHintMenuTitle(), action: #selector(activateHints), keyEquivalent: "")
+        scrollMenuItem = NSMenuItem(title: formatScrollMenuTitle(), action: #selector(activateScroll), keyEquivalent: "")
+
+        menu.addItem(hintMenuItem!)
+        menu.addItem(scrollMenuItem!)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit KeyNav", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem?.menu = menu
+
+        // Listen for settings changes to update menu titles
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateMenuTitles),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func updateMenuTitles() {
+        hintMenuItem?.title = formatHintMenuTitle()
+        scrollMenuItem?.title = formatScrollMenuTitle()
+    }
+
+    private func formatHintMenuTitle() -> String {
+        let keyCode = UserDefaults.standard.integer(forKey: "hintShortcutKeyCode")
+        let modifiers = UserDefaults.standard.integer(forKey: "hintShortcutModifiers")
+        let shortcut = ShortcutRecorderView.formatShortcut(keyCode: keyCode, modifiers: modifiers)
+        return "Activate Hints (\(shortcut))"
+    }
+
+    private func formatScrollMenuTitle() -> String {
+        let keyCode = UserDefaults.standard.integer(forKey: "scrollShortcutKeyCode")
+        let modifiers = UserDefaults.standard.integer(forKey: "scrollShortcutModifiers")
+        let shortcut = ShortcutRecorderView.formatShortcut(keyCode: keyCode, modifiers: modifiers)
+        return "Activate Scroll (\(shortcut))"
     }
 
     private func setupHintMode() {
