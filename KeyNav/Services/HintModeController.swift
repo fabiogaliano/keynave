@@ -390,6 +390,8 @@ class HintModeController {
 
         // Check for exact hint match first
         if let matchedElement = elements.first(where: { $0.hint == input }) {
+            // Update overlay to show the completed match with full highlighting
+            overlayWindow?.filterHints(matching: input, textMatches: [])
             // Perform click
             performClick(on: matchedElement)
             // Immediately clear input state before handling post-click
