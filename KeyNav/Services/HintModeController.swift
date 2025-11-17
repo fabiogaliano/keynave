@@ -19,6 +19,9 @@ class HintModeController {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var hotKeyRef: EventHotKeyRef?
+    private var uiChangeObserver: NSObjectProtocol?
+    private var isWaitingForUIChange = false
+    private var refreshFallbackTask: Task<Void, Never>?
 
     // Thread-safe state for event tap callback
     private nonisolated(unsafe) static var isHintModeActive = false
@@ -183,6 +186,9 @@ class HintModeController {
         HintModeController.isHintModeActive = false
         HintModeController.typedInput = ""
 
+        // Stop UI change observer
+        stopUIChangeObserver()
+
         // Stop event tap
         stopEventTap()
 
@@ -200,6 +206,85 @@ class HintModeController {
         currentInput = ""
 
         print("Hint mode deactivated successfully")
+    }
+
+    private func startUIChangeObserver() {
+        // Remove existing observer if any
+        stopUIChangeObserver()
+
+        // Start accessibility observer
+        AccessibilityService.shared.startObservingUIChanges()
+
+        // Subscribe to UI change notifications
+        uiChangeObserver = NotificationCenter.default.addObserver(
+            forName: .accessibilityUIChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.handleUIChangeDetected()
+            }
+        }
+
+        print("✅ UI change observer started")
+    }
+
+    private func stopUIChangeObserver() {
+        // Cancel fallback task
+        refreshFallbackTask?.cancel()
+        refreshFallbackTask = nil
+
+        // Remove notification observer
+        if let observer = uiChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            uiChangeObserver = nil
+        }
+
+        // Stop accessibility observer
+        AccessibilityService.shared.stopObservingUIChanges()
+        isWaitingForUIChange = false
+
+        print("🛑 UI change observer stopped")
+    }
+
+    private func handleUIChangeDetected() {
+        guard isWaitingForUIChange && isActive else { return }
+
+        print("🔄 UI change detected, refreshing hints...")
+        isWaitingForUIChange = false
+
+        // Cancel fallback task since we got the notification
+        refreshFallbackTask?.cancel()
+        refreshFallbackTask = nil
+
+        // Perform the actual refresh
+        performHintRefresh()
+    }
+
+    private func performHintRefresh() {
+        guard isActive else { return }
+
+        // Re-query clickable elements
+        let newElements = AccessibilityService.shared.getClickableElements()
+
+        guard !newElements.isEmpty else {
+            print("No clickable elements found after refresh")
+            deactivateHintMode()
+            return
+        }
+
+        // Update elements and reassign hints
+        self.elements = newElements
+        self.assignHints()
+
+        // Update the overlay window
+        self.overlayWindow?.updateHints(with: self.elements)
+
+        // Load text attributes for new elements (enables text search)
+        self.loadTextAttributesAsync()
+
+        print("✅ Hints refreshed with \(newElements.count) elements")
     }
 
     private func assignHints() {
@@ -496,33 +581,25 @@ class HintModeController {
         currentInput = ""
         HintModeController.typedInput = ""
 
-        // Wait for UI to update after click
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
+        // Start observing for UI changes
+        startUIChangeObserver()
+        isWaitingForUIChange = true
 
-            guard self.isActive else { return }
-
-            // Re-query clickable elements
-            let newElements = AccessibilityService.shared.getClickableElements()
-
-            guard !newElements.isEmpty else {
-                print("No clickable elements found after refresh")
-                self.deactivateHintMode()
-                return
+        // Set up a fallback timeout in case no UI changes are detected
+        // This handles cases where AX notifications don't fire (rare but possible)
+        refreshFallbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(3))
+                guard self.isWaitingForUIChange && self.isActive else { return }
+                print("⚠️ No UI change detected, performing fallback refresh...")
+                self.isWaitingForUIChange = false
+                self.performHintRefresh()
+            } catch {
+                // Task was cancelled, which is fine
             }
-
-            // Update elements and reassign hints
-            self.elements = newElements
-            self.assignHints()
-
-            // Update the overlay window
-            self.overlayWindow?.updateHints(with: self.elements)
-
-            // Load text attributes for new elements (enables text search)
-            self.loadTextAttributesAsync()
-
-            print("Hints refreshed with \(newElements.count) elements")
         }
+
+        print("⏳ Waiting for UI changes...")
     }
 
     nonisolated private static func keyCodeToCharacter(_ keyCode: Int64) -> String? {

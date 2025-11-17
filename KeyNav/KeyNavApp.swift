@@ -34,6 +34,7 @@ struct KeyNavApp: App {
 
 struct SettingsOpenerView: View {
     @Environment(\.openSettings) private var openSettings
+    @State private var windowObserver: NSObjectProtocol?
 
     var body: some View {
         Color.clear
@@ -42,30 +43,50 @@ struct SettingsOpenerView: View {
                 Task { @MainActor in
                     // Temporarily show dock icon for proper window focus
                     NSApp.setActivationPolicy(.regular)
-                    try? await Task.sleep(for: .milliseconds(100))
-
                     NSApp.activate(ignoringOtherApps: true)
-                    openSettings()
 
-                    // Ensure window comes to front
-                    try? await Task.sleep(for: .milliseconds(200))
-                    if let settingsWindow = Self.findSettingsWindow() {
-                        settingsWindow.makeKeyAndOrderFront(nil)
-                        settingsWindow.orderFrontRegardless()
+                    // Set up observer to detect when Settings window becomes key
+                    windowObserver = NotificationCenter.default.addObserver(
+                        forName: NSWindow.didBecomeKeyNotification,
+                        object: nil,
+                        queue: .main
+                    ) { notification in
+                        guard let window = notification.object as? NSWindow,
+                              Self.isSettingsWindow(window) else { return }
+
+                        // Settings window is now key, ensure it's focused
+                        window.makeKeyAndOrderFront(nil)
+                        window.orderFrontRegardless()
+
+                        // Remove observer after handling
+                        if let observer = windowObserver {
+                            NotificationCenter.default.removeObserver(observer)
+                            windowObserver = nil
+                        }
                     }
+
+                    openSettings()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .settingsWindowClosed)) { _ in
                 // Hide dock icon when settings closes
                 NSApp.setActivationPolicy(.accessory)
+
+                // Clean up observer if still active
+                if let observer = windowObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    windowObserver = nil
+                }
             }
     }
 
+    private static func isSettingsWindow(_ window: NSWindow) -> Bool {
+        window.identifier?.rawValue == "com.apple.SwiftUI.Settings" ||
+        (window.isVisible && window.title.localizedCaseInsensitiveContains("settings"))
+    }
+
     private static func findSettingsWindow() -> NSWindow? {
-        NSApp.windows.first { window in
-            window.identifier?.rawValue == "com.apple.SwiftUI.Settings" ||
-            (window.isVisible && window.title.localizedCaseInsensitiveContains("settings"))
-        }
+        NSApp.windows.first { isSettingsWindow($0) }
     }
 }
 
