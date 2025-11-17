@@ -99,6 +99,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "hintCharacters": "asdfhjkl", // Home row keys for hint generation
             "textSearchEnabled": true, // Enable text-based element search
             "minSearchCharacters": 2, // Minimum characters to trigger text search
+            "hintBackgroundHex": "#3B82F6", // Blue background tint
+            "hintBorderHex": "#3B82F6", // Blue border
+            "hintTextHex": "#FFFFFF", // White text
+            "highlightTextHex": "#FFFF00", // Yellow highlight
+            "hintBackgroundOpacity": 0.3,
+            "hintBorderOpacity": 0.6,
             "scrollShortcutKeyCode": 14, // E key
             "scrollShortcutModifiers": optionKey,
             "scrollArrowMode": "select",

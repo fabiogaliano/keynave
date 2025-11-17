@@ -64,16 +64,40 @@ class HintOverlayWindow: NSWindow {
     }
 
     private func createHintLabel(for element: UIElement) -> NSView {
+        // Get user preferences
+        let hintSize = UserDefaults.standard.double(forKey: "hintSize")
+        let fontSize = hintSize > 0 ? CGFloat(hintSize) : 12
+
+        // Get custom colors from preferences
+        let backgroundHex = UserDefaults.standard.string(forKey: "hintBackgroundHex") ?? "#3B82F6"
+        let borderHex = UserDefaults.standard.string(forKey: "hintBorderHex") ?? "#3B82F6"
+        let textHex = UserDefaults.standard.string(forKey: "hintTextHex") ?? "#FFFFFF"
+        let backgroundOpacity = UserDefaults.standard.double(forKey: "hintBackgroundOpacity")
+        let borderOpacity = UserDefaults.standard.double(forKey: "hintBorderOpacity")
+
+        let backgroundColor = NSColor(hex: backgroundHex)
+        let borderColor = NSColor(hex: borderHex)
+        let textColor = NSColor(hex: textHex)
+        let bgOpacity = backgroundOpacity > 0 ? CGFloat(backgroundOpacity) : 0.3
+        let bdrOpacity = borderOpacity > 0 ? CGFloat(borderOpacity) : 0.6
+
         let label = NSTextField(labelWithString: element.hint)
-        label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        label.textColor = .white
-        label.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.9)
+        label.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
+        label.textColor = textColor
+        label.backgroundColor = .clear
         label.isBordered = false
         label.isBezeled = false
-        label.drawsBackground = true
+        label.drawsBackground = false
         label.alignment = .center
         label.wantsLayer = true
-        label.layer?.cornerRadius = 3
+        // Add subtle shadow for better legibility
+        label.shadow = {
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.shadowBlurRadius = 2
+            return shadow
+        }()
 
         label.sizeToFit()
 
@@ -82,14 +106,35 @@ class HintOverlayWindow: NSWindow {
         let width = label.frame.width + padding * 2
         let height = label.frame.height + padding
 
+        // Create glass container using NSVisualEffectView
+        let glassContainer = NSVisualEffectView(frame: .zero)
+        glassContainer.material = .hudWindow
+        glassContainer.blendingMode = .behindWindow
+        glassContainer.state = .active
+        glassContainer.wantsLayer = true
+        glassContainer.layer?.cornerRadius = 4
+        glassContainer.layer?.masksToBounds = true
+        glassContainer.layer?.borderWidth = 1
+        glassContainer.layer?.borderColor = borderColor.withAlphaComponent(bdrOpacity).cgColor
+
+        // Add subtle tint overlay for accent color
+        let tintOverlay = NSView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+        tintOverlay.wantsLayer = true
+        tintOverlay.layer?.backgroundColor = backgroundColor.withAlphaComponent(bgOpacity).cgColor
+
+        // Position label within container
+        label.frame = CGRect(x: 0, y: 0, width: width, height: height)
+
+        glassContainer.addSubview(tintOverlay)
+        glassContainer.addSubview(label)
+
         // Position hint overlapping the element (top-left corner, inside the element)
-        // This is more visually clear than floating above
         let x = element.frame.minX
         let y = element.frame.maxY - height  // Place at top of element (maxY in flipped coords)
 
-        label.frame = CGRect(x: x, y: y, width: width, height: height)
+        glassContainer.frame = CGRect(x: x, y: y, width: width, height: height)
 
-        return label
+        return glassContainer
     }
 
     private func setupSearchBar() {
@@ -101,12 +146,16 @@ class HintOverlayWindow: NSWindow {
         let containerX = (screenFrame.width - containerWidth) / 2
         let containerY: CGFloat = 80 // Near bottom of screen
 
-        let container = NSView(frame: CGRect(x: containerX, y: containerY, width: containerWidth, height: containerHeight))
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
-        container.layer?.cornerRadius = 10
-        container.layer?.borderWidth = 2
-        container.layer?.borderColor = NSColor.systemBlue.cgColor
+        // Create visual effect view for glass background
+        let visualEffectView = NSVisualEffectView(frame: CGRect(x: containerX, y: containerY, width: containerWidth, height: containerHeight))
+        visualEffectView.material = .hudWindow
+        visualEffectView.blendingMode = .behindWindow
+        visualEffectView.state = .active
+        visualEffectView.wantsLayer = true
+        visualEffectView.layer?.cornerRadius = 10
+        visualEffectView.layer?.masksToBounds = true
+        visualEffectView.layer?.borderWidth = 1.5
+        visualEffectView.layer?.borderColor = NSColor.white.withAlphaComponent(0.3).cgColor
 
         // Create search text field (display only)
         let textField = NSTextField(labelWithString: "")
@@ -119,7 +168,7 @@ class HintOverlayWindow: NSWindow {
         textField.placeholderString = "Type to search..."
         textField.placeholderAttributedString = NSAttributedString(
             string: "Type to search...",
-            attributes: [.foregroundColor: NSColor.gray, .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)]
+            attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.5), .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)]
         )
 
         // Create match count label
@@ -131,14 +180,14 @@ class HintOverlayWindow: NSWindow {
         countLabel.alignment = .right
         countLabel.frame = CGRect(x: containerWidth - 70, y: 10, width: 60, height: 20)
 
-        container.addSubview(textField)
-        container.addSubview(countLabel)
+        visualEffectView.addSubview(textField)
+        visualEffectView.addSubview(countLabel)
 
-        self.searchBarView = container
+        self.searchBarView = visualEffectView
         self.searchTextField = textField
         self.matchCountLabel = countLabel
 
-        self.contentView?.addSubview(container)
+        self.contentView?.addSubview(visualEffectView)
     }
 
     func show() {
@@ -228,6 +277,10 @@ class HintOverlayWindow: NSWindow {
         }
         elementHighlights.removeAll()
 
+        // Get custom text color from preferences
+        let textHex = UserDefaults.standard.string(forKey: "hintTextHex") ?? "#FFFFFF"
+        let textColor = NSColor(hex: textHex)
+
         // If we have text matches, highlight those elements
         if !textMatches.isEmpty {
             for element in textMatches {
@@ -244,16 +297,35 @@ class HintOverlayWindow: NSWindow {
             for (hint, view) in hintViews {
                 if prefix.isEmpty {
                     view.isHidden = false
-                    (view as? NSTextField)?.textColor = .white
+                    // Reset text color to custom color
+                    if let textField = findTextField(in: view) {
+                        textField.textColor = textColor
+                    }
                 } else if hint.hasPrefix(prefix) {
                     view.isHidden = false
                     // Highlight matched portion
-                    highlightPrefix(in: view as? NSTextField, prefix: prefix, hint: hint)
+                    if let textField = findTextField(in: view) {
+                        highlightPrefix(in: textField, prefix: prefix, hint: hint)
+                    }
                 } else {
                     view.isHidden = true
                 }
             }
         }
+    }
+
+    private func findTextField(in view: NSView) -> NSTextField? {
+        // If it's already an NSTextField, return it
+        if let textField = view as? NSTextField {
+            return textField
+        }
+        // Otherwise search subviews (for glass container structure)
+        for subview in view.subviews {
+            if let textField = subview as? NSTextField {
+                return textField
+            }
+        }
+        return nil
     }
 
     private func createHighlightView(for element: UIElement) -> NSView {
@@ -269,14 +341,20 @@ class HintOverlayWindow: NSWindow {
     private func highlightPrefix(in textField: NSTextField?, prefix: String, hint: String) {
         guard let textField = textField else { return }
 
+        // Get custom colors from preferences
+        let highlightHex = UserDefaults.standard.string(forKey: "highlightTextHex") ?? "#FFFF00"
+        let textHex = UserDefaults.standard.string(forKey: "hintTextHex") ?? "#FFFFFF"
+        let highlightColor = NSColor(hex: highlightHex)
+        let textColor = NSColor(hex: textHex)
+
         let attributedString = NSMutableAttributedString(string: hint)
 
-        // Matched portion in yellow
-        attributedString.addAttribute(.foregroundColor, value: NSColor.yellow, range: NSRange(location: 0, length: prefix.count))
+        // Matched portion in highlight color
+        attributedString.addAttribute(.foregroundColor, value: highlightColor, range: NSRange(location: 0, length: prefix.count))
 
-        // Remaining portion in white
+        // Remaining portion in text color
         if prefix.count < hint.count {
-            attributedString.addAttribute(.foregroundColor, value: NSColor.white, range: NSRange(location: prefix.count, length: hint.count - prefix.count))
+            attributedString.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: prefix.count, length: hint.count - prefix.count))
         }
 
         textField.attributedStringValue = attributedString
