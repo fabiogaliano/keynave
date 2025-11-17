@@ -9,7 +9,10 @@
       "WebFetch(domain:stackoverflow.com)",
       "WebFetch(domain:steipete.me)",
       "WebFetch(domain:www.homerow.app)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:onepagelove.com)",
+      "WebFetch(domain:www.lapa.ninja)"
     ],
     "deny": [],
     "ask": []
