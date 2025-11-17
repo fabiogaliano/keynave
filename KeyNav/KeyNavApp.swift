@@ -86,7 +86,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Register default values
         UserDefaults.standard.register(defaults: [
             "hintSize": 12.0,
-            "hintColor": "blue"
+            "hintColor": "blue",
+            "continuousClickMode": false
         ])
 
         setupMenuBar()

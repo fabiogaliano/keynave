@@ -10,6 +10,7 @@ import SwiftUI
 struct PreferencesView: View {
     @AppStorage("hintSize") private var hintSize: Double = 12
     @AppStorage("hintColor") private var hintColor: String = "blue"
+    @AppStorage("continuousClickMode") private var continuousClickMode: Bool = false
 
     var body: some View {
         Form {
@@ -17,6 +18,13 @@ struct PreferencesView: View {
                 Text("⌘⇧Space - Activate Hint Mode")
                     .foregroundStyle(.secondary)
                 Text("ESC - Cancel Hint Mode")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Behavior") {
+                Toggle("Continuous Click Mode", isOn: $continuousClickMode)
+                Text("When enabled, hint mode stays active after clicking. Continue clicking elements until you press ESC.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -48,7 +56,7 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 400)
         .padding()
     }
 }

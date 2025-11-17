@@ -267,7 +267,17 @@ class HintModeController {
         if let matchedElement = elements.first(where: { $0.hint == input }) {
             // Perform click
             performClick(on: matchedElement)
-            deactivateHintMode()
+
+            // Check if continuous mode is enabled
+            let continuousMode = UserDefaults.standard.bool(forKey: "continuousClickMode")
+
+            if continuousMode {
+                // Refresh hints for continued clicking
+                refreshHints()
+            } else {
+                // Deactivate as normal
+                deactivateHintMode()
+            }
             return
         }
 
@@ -282,6 +292,39 @@ class HintModeController {
         } else {
             // Update overlay to show only matching hints
             overlayWindow?.filterHints(matching: input)
+        }
+    }
+
+    private func refreshHints() {
+        print("Refreshing hints for continuous mode...")
+
+        // Reset input state
+        currentInput = ""
+        HintModeController.typedInput = ""
+
+        // Wait for UI to update after click
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+
+            guard self.isActive else { return }
+
+            // Re-query clickable elements
+            let newElements = AccessibilityService.shared.getClickableElements()
+
+            guard !newElements.isEmpty else {
+                print("No clickable elements found after refresh")
+                self.deactivateHintMode()
+                return
+            }
+
+            // Update elements and reassign hints
+            self.elements = newElements
+            self.assignHints()
+
+            // Update the overlay window
+            self.overlayWindow?.updateHints(with: self.elements)
+
+            print("Hints refreshed with \(newElements.count) elements")
         }
     }
 

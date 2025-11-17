@@ -100,6 +100,26 @@ class HintOverlayWindow: NSWindow {
         print("HintOverlayWindow closed")
     }
 
+    func updateHints(with newElements: [UIElement]) {
+        print("Updating hints with \(newElements.count) elements...")
+
+        // Clear existing hints
+        hintViews.removeAll()
+        self.contentView?.subviews.forEach { $0.removeFromSuperview() }
+
+        // Update elements
+        self.elements = newElements
+
+        // Recreate hints
+        setupHintViews()
+
+        // Force redraw
+        self.contentView?.needsDisplay = true
+        self.displayIfNeeded()
+
+        print("Hints updated")
+    }
+
     func filterHints(matching prefix: String) {
         for (hint, view) in hintViews {
             if prefix.isEmpty {
