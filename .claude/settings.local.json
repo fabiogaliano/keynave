@@ -6,7 +6,8 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:gaitatzis.medium.com)",
-      "WebFetch(domain:stackoverflow.com)"
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:steipete.me)"
     ],
     "deny": [],
     "ask": []

@@ -13,11 +13,69 @@ struct KeyNavApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        // Hidden window provides SwiftUI context for openSettings()
+        Window("Hidden", id: "HiddenWindow") {
+            SettingsOpenerView()
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 1, height: 1)
+
         Settings {
             PreferencesView()
+                .onDisappear {
+                    NotificationCenter.default.post(name: .settingsWindowClosed, object: nil)
+                }
         }
     }
 }
+
+// MARK: - Settings Opener View (Hidden SwiftUI Bridge)
+
+struct SettingsOpenerView: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequest)) { _ in
+                Task { @MainActor in
+                    // Temporarily show dock icon for proper window focus
+                    NSApp.setActivationPolicy(.regular)
+                    try? await Task.sleep(for: .milliseconds(100))
+
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+
+                    // Ensure window comes to front
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if let settingsWindow = Self.findSettingsWindow() {
+                        settingsWindow.makeKeyAndOrderFront(nil)
+                        settingsWindow.orderFrontRegardless()
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .settingsWindowClosed)) { _ in
+                // Hide dock icon when settings closes
+                NSApp.setActivationPolicy(.accessory)
+            }
+    }
+
+    private static func findSettingsWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.identifier?.rawValue == "com.apple.SwiftUI.Settings" ||
+            (window.isVisible && window.title.localizedCaseInsensitiveContains("settings"))
+        }
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let openSettingsRequest = Notification.Name("openSettingsRequest")
+    static let settingsWindowClosed = Notification.Name("settingsWindowClosed")
+}
+
+// MARK: - App Delegate
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -25,6 +83,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hintModeController: HintModeController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register default values
+        UserDefaults.standard.register(defaults: [
+            "hintSize": 12.0,
+            "hintColor": "blue"
+        ])
+
         setupMenuBar()
         setupHintMode()
         checkAccessibilityPermissions()
@@ -66,7 +130,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openPreferences() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        // Use NotificationCenter to trigger SwiftUI's openSettings()
+        NotificationCenter.default.post(name: .openSettingsRequest, object: nil)
     }
 
     @objc private func quitApp() {
