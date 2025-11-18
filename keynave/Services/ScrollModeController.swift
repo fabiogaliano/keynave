@@ -126,48 +126,268 @@ class ScrollModeController {
     }
 
     private func activateScrollMode() {
+        let activationStartTime = Date()
         guard !isActive else { return }
 
         // Load settings
         loadSettings()
 
-        // Get scrollable areas
-        areas = ScrollableAreaService.shared.getScrollableAreas()
+        // PHASE 1: Quick focus check (5-10ms)
+        if let focusedArea = ScrollableAreaService.shared.findFocusedScrollableArea() {
+            // Assign hint
+            var focusedAreaWithHint = focusedArea
+            focusedAreaWithHint.hint = "1"
+            areas = [focusedAreaWithHint]
+            assignHints()
 
-        guard !areas.isEmpty else {
-            print("No scrollable areas found")
+            print("[HINT] #1 → \(focusedArea.frame)")
+
+            // Create overlay with just the focused area
+            overlayWindow = ScrollOverlayWindow(areas: areas)
+            overlayWindow?.show()
+
+            // Update state
+            isActive = true
+            currentInput = ""
+            selectedAreaIndex = 0
+            ScrollModeController.isScrollModeActive = true
+            ScrollModeController.typedInput = ""
+            ScrollModeController.selectedIndex = 0
+            ScrollModeController.areaCount = areas.count
+
+            // Auto-select the focused area
+            selectArea(at: 0)
+
+            // Start intercepting keyboard events
+            startEventTap()
+
+            // Start deactivation timer if enabled
+            startDeactivationTimer()
+
+            // PHASE 2: Continue progressive discovery in background
+            continueProgressiveDiscovery()
+
             return
         }
 
-        // Assign hints (numbered)
-        assignHints()
+        // PHASE 2: No focus found - start async progressive discovery
 
-        // Show overlay
-        overlayWindow = ScrollOverlayWindow(areas: areas)
-        overlayWindow?.show()
+        // Run discovery on background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
 
-        // Update state
-        isActive = true
-        currentInput = ""
-        selectedAreaIndex = -1
-        ScrollModeController.isScrollModeActive = true
-        ScrollModeController.typedInput = ""
-        ScrollModeController.selectedIndex = -1
-        ScrollModeController.areaCount = areas.count
+            var firstAreaFound = false
+            var nextHintNumber = 1
+            let maxAreas = 15
 
-        // Start intercepting keyboard events
-        startEventTap()
+            _ = ScrollableAreaService.shared.getScrollableAreas(onAreaFound: { area in
+                let hintNumber = nextHintNumber
+                nextHintNumber += 1
 
-        // Start deactivation timer if enabled
-        startDeactivationTimer()
+                // Dispatch UI updates to main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
 
-        print("Scroll mode activated with \(areas.count) areas")
+                    // First area found - activate immediately!
+                    if !firstAreaFound {
+                        firstAreaFound = true
+
+                        var areaWithHint = area
+                        areaWithHint.hint = "\(hintNumber)"
+                        self.areas = [areaWithHint]
+
+                        print("[HINT] #\(hintNumber) → \(area.frame)")
+
+                        // Create overlay with first area
+                        self.overlayWindow = ScrollOverlayWindow(areas: self.areas)
+                        self.overlayWindow?.show()
+
+                        // Update state
+                        self.isActive = true
+                        self.currentInput = ""
+                        self.selectedAreaIndex = -1
+                        ScrollModeController.isScrollModeActive = true
+                        ScrollModeController.typedInput = ""
+                        ScrollModeController.selectedIndex = -1
+                        ScrollModeController.areaCount = self.areas.count
+
+                        // Start event tap
+                        self.startEventTap()
+                        self.startDeactivationTimer()
+
+                        let initialElapsed = Date().timeIntervalSince(activationStartTime)
+                        print("[PERF] Scroll mode activated with first area in \(String(format: "%.2f", initialElapsed * 1000))ms (async)")
+
+                        // Try cursor position on first area
+                        let cursorLocation = NSEvent.mouseLocation
+                        if area.frame.contains(cursorLocation) {
+                            self.selectArea(at: 0)
+                            print("[PERF] Auto-selected first area via cursor position")
+                        }
+                    } else {
+                        // Subsequent areas - add dynamically
+                        var areaWithHint = area
+                        areaWithHint.hint = "\(hintNumber)"
+                        self.areas.append(areaWithHint)
+                        self.overlayWindow?.addArea(areaWithHint)
+                        ScrollModeController.areaCount = self.areas.count
+
+                        print("[HINT] #\(hintNumber) → \(area.frame)")
+                    }
+                }
+            }, maxAreas: maxAreas)
+        }
+    }
+
+    private func continueProgressiveDiscovery() {
+        // Run discovery on background queue to avoid blocking main thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let focusedAreaFrame = self.areas.first?.frame
+            var areasFound = 0
+            let maxAreas = 15  // Stop after finding 15 areas total
+
+            _ = ScrollableAreaService.shared.getScrollableAreas(onAreaFound: { area in
+                // Check if we should stop (already found enough areas)
+                if areasFound >= maxAreas {
+                    return
+                }
+
+                areasFound += 1
+
+                // Dispatch UI updates to main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+
+                    // Skip if this is the focused area we already have (exact duplicate)
+                    if let focusedFrame = focusedAreaFrame,
+                       abs(area.frame.origin.x - focusedFrame.origin.x) < 10 &&
+                       abs(area.frame.origin.y - focusedFrame.origin.y) < 10 &&
+                       abs(area.frame.width - focusedFrame.width) < 10 &&
+                       abs(area.frame.height - focusedFrame.height) < 10 {
+                        print("[DEBUG] SKIP duplicate")
+                        return
+                    }
+
+                    // Check relationships with existing areas
+                    var shouldAddNewArea = true
+                    var removedAreas: [(index: Int, hint: String)] = []
+
+                    for (index, existing) in self.areas.enumerated() {
+                        // Check for duplicate
+                        if abs(area.frame.origin.x - existing.frame.origin.x) < 10 &&
+                           abs(area.frame.origin.y - existing.frame.origin.y) < 10 &&
+                           abs(area.frame.width - existing.frame.width) < 10 &&
+                           abs(area.frame.height - existing.frame.height) < 10 {
+                            shouldAddNewArea = false
+                            break
+                        }
+
+                        // Check if new area is nested inside existing
+                        if area.frame.minX >= existing.frame.minX - 5 &&
+                           area.frame.maxX <= existing.frame.maxX + 5 &&
+                           area.frame.minY >= existing.frame.minY - 5 &&
+                           area.frame.maxY <= existing.frame.maxY + 5 {
+
+                            // If they share the same X origin, they're the same scrollable (filter regardless of size)
+                            let sameXOrigin = abs(area.frame.origin.x - existing.frame.origin.x) < 2
+
+                            if sameXOrigin {
+                                shouldAddNewArea = false
+                                print("[DEBUG] SKIP nested (same X origin)")
+                                break
+                            }
+
+                            // Otherwise, only skip if >70% the size (near-duplicate)
+                            let newSize = area.frame.width * area.frame.height
+                            let existingSize = existing.frame.width * existing.frame.height
+                            let sizeRatio = newSize / existingSize
+
+                            if sizeRatio > 0.7 {
+                                shouldAddNewArea = false
+                                print("[DEBUG] SKIP nested (size ratio: \(String(format: "%.2f", sizeRatio)))")
+                                break
+                            }
+                        }
+
+                        // Check if existing area is nested inside new
+                        if existing.frame.minX >= area.frame.minX - 5 &&
+                           existing.frame.maxX <= area.frame.maxX + 5 &&
+                           existing.frame.minY >= area.frame.minY - 5 &&
+                           existing.frame.maxY <= area.frame.maxY + 5 {
+
+                            // If they share the same X origin, they're the same scrollable (filter regardless of size)
+                            let sameXOrigin = abs(area.frame.origin.x - existing.frame.origin.x) < 2
+
+                            if sameXOrigin {
+                                removedAreas.append((index, existing.hint))
+                                print("[DEBUG] REMOVING nested (same X origin): hint #\(existing.hint)")
+                            } else {
+                                // Otherwise, only remove if >70% the size (near-duplicate)
+                                let newSize = area.frame.width * area.frame.height
+                                let existingSize = existing.frame.width * existing.frame.height
+                                let sizeRatio = existingSize / newSize
+
+                                if sizeRatio > 0.7 {
+                                    removedAreas.append((index, existing.hint))
+                                }
+                            }
+                        }
+
+                        // Check if they're vertically stacked sections (same X/width, different Y/height)
+                        if abs(area.frame.origin.x - existing.frame.origin.x) < 10 &&
+                           abs(area.frame.width - existing.frame.width) < 10 &&
+                           abs(area.frame.origin.y - existing.frame.origin.y) >= 10 {
+
+                            // They're sections in the same vertical column - keep the larger one
+                            let newSize = area.frame.width * area.frame.height
+                            let existingSize = existing.frame.width * existing.frame.height
+
+                            if newSize > existingSize {
+                                // New area is larger, remove existing
+                                removedAreas.append((index, existing.hint))
+                                print("[DEBUG] REMOVING vertical section (new is larger): hint #\(existing.hint)")
+                            } else {
+                                // Existing is larger, skip new
+                                print("[DEBUG] SKIP vertical section (existing is larger)")
+                                shouldAddNewArea = false
+                                break
+                            }
+                        }
+                    }
+
+                    if !shouldAddNewArea {
+                        return
+                    }
+
+                    // Remove nested areas (in reverse order)
+                    if !removedAreas.isEmpty {
+                        for (index, hint) in removedAreas.reversed() {
+                            print("[DEBUG] REMOVING nested area (was hint #\(hint))")
+                            self.overlayWindow?.removeArea(withHint: hint)
+                            self.areas.remove(at: index)
+                        }
+                        // Reassign hints to eliminate gaps
+                        self.reassignHints()
+                    }
+
+                    // Add new area dynamically with sequential hint number
+                    var areaWithHint = area
+                    let nextHint = "\(self.areas.count + 1)"
+                    areaWithHint.hint = nextHint
+                    self.areas.append(areaWithHint)
+                    self.overlayWindow?.addArea(areaWithHint)
+                    ScrollModeController.areaCount = self.areas.count
+
+                    print("[HINT] #\(nextHint) → \(area.frame)")
+                }
+            }, maxAreas: maxAreas)
+        }
     }
 
     private func deactivateScrollMode() {
         guard isActive else { return }
-
-        print("Deactivating scroll mode...")
 
         // Stop timer
         deactivationTimer?.invalidate()
@@ -193,8 +413,6 @@ class ScrollModeController {
         isActive = false
         currentInput = ""
         selectedAreaIndex = -1
-
-        print("Scroll mode deactivated")
     }
 
     private func loadSettings() {
@@ -214,6 +432,24 @@ class ScrollModeController {
         for i in 0..<areas.count {
             areas[i].hint = "\(i + 1)"
         }
+    }
+
+    /// Reassign hints after removing nested areas (eliminates gaps in numbering)
+    private func reassignHints() {
+        // Reassign sequential hints
+        for i in 0..<areas.count {
+            let oldHint = areas[i].hint
+            let newHint = "\(i + 1)"
+
+            if oldHint != newHint {
+                areas[i].hint = newHint
+                overlayWindow?.updateHint(oldHint: oldHint, newHint: newHint)
+                print("[DEBUG] Resequenced hint #\(oldHint) → #\(newHint)")
+            }
+        }
+
+        // Update static count
+        ScrollModeController.areaCount = areas.count
     }
 
     private func startDeactivationTimer() {

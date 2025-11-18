@@ -94,9 +94,9 @@ class ScrollOverlayWindow: NSWindow {
         let width = label.frame.width + padding * 2
         let height = label.frame.height + padding
 
-        // Position at area's center
-        let x = area.frame.midX - width / 2
-        let y = area.frame.midY - height / 2
+        // Position at top-right corner
+        let x = area.frame.maxX - width - 8  // 8px from right edge
+        let y = area.frame.minY + 8           // 8px from top edge
 
         label.frame = CGRect(x: x, y: y, width: width, height: height)
 
@@ -105,6 +105,81 @@ class ScrollOverlayWindow: NSWindow {
 
     func show() {
         self.orderFrontRegardless()
+    }
+
+    /// Dynamically add a new scrollable area to the overlay
+    func addArea(_ area: ScrollableArea) {
+        // Add to areas array
+        areas.append(area)
+
+        // Only create hint view if setting is enabled
+        let showNumbers = UserDefaults.standard.bool(forKey: "showScrollAreaNumbers")
+        guard showNumbers else { return }
+
+        // Create and add hint view
+        let hintView = createHintLabel(for: area)
+        contentView?.addSubview(hintView)
+        hintViews[area.hint] = hintView
+
+        // Preserve selection state (dim new hint if something is already selected)
+        if selectedAreaIndex >= 0 {
+            hintView.alphaValue = 0.3
+        }
+    }
+
+    /// Remove an area from the overlay by its hint number
+    func removeArea(withHint hint: String) {
+        // Remove from areas array
+        areas.removeAll { $0.hint == hint }
+
+        // Remove hint view if it exists
+        if let hintView = hintViews[hint] {
+            hintView.removeFromSuperview()
+            hintViews.removeValue(forKey: hint)
+        }
+    }
+
+    /// Update hint number for an existing area (for resequencing)
+    func updateHint(oldHint: String, newHint: String) {
+        // Update in areas array
+        if let index = areas.firstIndex(where: { $0.hint == oldHint }) {
+            areas[index].hint = newHint
+        }
+
+        // Update hint view if it exists
+        if let hintView = hintViews[oldHint] as? NSTextField {
+            hintView.stringValue = newHint
+            hintViews.removeValue(forKey: oldHint)
+            hintViews[newHint] = hintView
+        }
+    }
+
+    /// Update all areas (used after removing nested areas to refresh overlay)
+    func updateAllAreas(_ newAreas: [ScrollableArea]) {
+        // Clear existing hints
+        hintViews.values.forEach { $0.removeFromSuperview() }
+        hintViews.removeAll()
+
+        // Update areas
+        areas = newAreas
+
+        // Recreate hints if enabled
+        let showNumbers = UserDefaults.standard.bool(forKey: "showScrollAreaNumbers")
+        guard showNumbers else { return }
+
+        for area in areas {
+            let hintView = createHintLabel(for: area)
+            contentView?.addSubview(hintView)
+            hintViews[area.hint] = hintView
+
+            // Preserve selection state
+            if selectedAreaIndex >= 0 && selectedAreaIndex < areas.count {
+                let selectedArea = areas[selectedAreaIndex]
+                if area.hint != selectedArea.hint {
+                    hintView.alphaValue = 0.3
+                }
+            }
+        }
     }
 
     override func close() {
