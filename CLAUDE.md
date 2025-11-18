@@ -4,16 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KeyNav is a macOS menu bar app providing keyboard-driven UI navigation similar to Homerow. It overlays clickable hints on UI elements, allowing users to click anywhere using keyboard shortcuts instead of the mouse.
+keynave is a macOS menu bar app providing keyboard-driven UI navigation similar to Homerow. It overlays clickable hints on UI elements, allowing users to click anywhere using keyboard shortcuts instead of the mouse.
 
 ## Build & Development
 
 ```bash
 # Build from command line
-xcodebuild -project KeyNav.xcodeproj -scheme KeyNav -configuration Debug build
+xcodebuild -project keynave.xcodeproj -scheme keynave -configuration Debug build
 
 # Run via Xcode
-open KeyNav.xcodeproj
+open keynave.xcodeproj
 # Then Cmd+R to build and run
 ```
 
@@ -61,7 +61,7 @@ open KeyNav.xcodeproj
 - `ShortcutRecorderView` - SwiftUI component for recording custom keyboard shortcuts with live preview
 
 **App Infrastructure:**
-- `KeyNavApp` - SwiftUI App entry point with hidden window bridge for opening Settings
+- `keynaveApp` - SwiftUI App entry point with hidden window bridge for opening Settings
 - `AppDelegate` - Sets up menu bar status item, initializes hint mode controller
 
 ### Important Patterns

@@ -1,6 +1,6 @@
 //
 //  HintOverlayWindow.swift
-//  KeyNav
+//  keynave
 //
 //  Transparent overlay window for displaying hints
 //

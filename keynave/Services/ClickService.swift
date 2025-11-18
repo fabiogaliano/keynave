@@ -1,6 +1,6 @@
 //
 //  ClickService.swift
-//  KeyNav
+//  keynave
 //
 //  Performs click actions via CGEvent
 //

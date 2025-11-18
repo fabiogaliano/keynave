@@ -1,6 +1,6 @@
 //
 //  ScrollableAreaService.swift
-//  KeyNav
+//  keynave
 //
 //  Queries UI elements via Accessibility APIs for scrollable areas
 //

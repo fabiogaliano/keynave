@@ -1,6 +1,6 @@
 //
 //  UIElement.swift
-//  KeyNav
+//  keynave
 //
 //  Wrapper for accessibility UI elements
 //

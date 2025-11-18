@@ -1,6 +1,6 @@
 //
 //  PreferencesView.swift
-//  KeyNav
+//  keynave
 //
 //  Settings UI
 //
@@ -334,7 +334,7 @@ struct PreferencesView: View {
             }
 
             Section("About") {
-                Text("KeyNav - Keyboard Navigation for macOS")
+                Text("keynave - Keyboard Navigation for macOS")
                     .font(.headline)
                 Text("Version 1.0")
                     .foregroundStyle(.secondary)

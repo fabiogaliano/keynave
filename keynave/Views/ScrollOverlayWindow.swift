@@ -1,6 +1,6 @@
 //
 //  ScrollOverlayWindow.swift
-//  KeyNav
+//  keynave
 //
 //  Transparent overlay window for displaying scroll area hints
 //

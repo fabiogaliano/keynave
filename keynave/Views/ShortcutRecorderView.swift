@@ -1,6 +1,6 @@
 //
 //  ShortcutRecorderView.swift
-//  KeyNav
+//  keynave
 //
 //  SwiftUI view for recording keyboard shortcuts
 //

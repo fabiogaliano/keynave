@@ -1,10 +1,10 @@
-# KeyNav
+# keynave
 
 A macOS menu bar application for keyboard-driven UI navigation. Click anywhere on your screen using keyboard shortcuts instead of the mouse.
 
 ## Overview
 
-KeyNav displays alphabetic hints over clickable UI elements, allowing you to interact with any application without reaching for the mouse. Similar to Vimium for browsers, but for the entire macOS desktop.
+keynave displays alphabetic hints over clickable UI elements, allowing you to interact with any application without reaching for the mouse. Similar to Vimium for browsers, but for the entire macOS desktop.
 
 ## Features
 
@@ -40,19 +40,19 @@ KeyNav displays alphabetic hints over clickable UI elements, allowing you to int
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd KeyNav
+cd keynave
 
 # Build from command line
-xcodebuild -project KeyNav.xcodeproj -scheme KeyNav -configuration Debug build
+xcodebuild -project keynave.xcodeproj -scheme keynave -configuration Debug build
 
 # Or open in Xcode
-open KeyNav.xcodeproj
+open keynave.xcodeproj
 # Press Cmd+R to build and run
 ```
 
 ## Setup
 
-1. Launch KeyNav
+1. Launch keynave
 2. Grant Accessibility permissions when prompted (System Settings > Privacy & Security > Accessibility)
 3. The app appears in the menu bar
 
