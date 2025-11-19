@@ -222,18 +222,14 @@ class HintOverlayWindow: NSWindow {
     }
 
     override func close() {
-        print("HintOverlayWindow closing...")
         // Clear all hint views
         hintViews.removeAll()
         self.contentView?.subviews.forEach { $0.removeFromSuperview() }
         self.orderOut(nil)
         super.close()
-        print("HintOverlayWindow closed")
     }
 
     func updateHints(with newElements: [UIElement]) {
-        print("Updating hints with \(newElements.count) elements...")
-
         // Clear existing hints but preserve search bar
         hintViews.removeAll()
         elementHighlights.removeAll()
@@ -262,15 +258,13 @@ class HintOverlayWindow: NSWindow {
         // Force redraw
         self.contentView?.needsDisplay = true
         self.displayIfNeeded()
-
-        print("Hints updated")
     }
 
     func filterHints(matching prefix: String) {
-        filterHints(matching: prefix, textMatches: [])
+        filterHints(matching: prefix, textMatches: [], numberedMode: false)
     }
 
-    func filterHints(matching prefix: String, textMatches: [UIElement]) {
+    func filterHints(matching prefix: String, textMatches: [UIElement], numberedMode: Bool = false) {
         // Clear existing highlights
         for (_, highlightView) in elementHighlights {
             highlightView.removeFromSuperview()
@@ -281,16 +275,32 @@ class HintOverlayWindow: NSWindow {
         let textHex = UserDefaults.standard.string(forKey: "hintTextHex") ?? "#FFFFFF"
         let textColor = NSColor(hex: textHex)
 
-        // If we have text matches, highlight those elements
+        // If we have text matches
         if !textMatches.isEmpty {
-            for element in textMatches {
-                let highlightView = createHighlightView(for: element)
-                self.contentView?.addSubview(highlightView)
-                elementHighlights[element.id] = highlightView
-            }
-            // Hide all hint labels when showing text matches
-            for (_, view) in hintViews {
-                view.isHidden = true
+            if numberedMode {
+                // Numbered hints mode - show numbered hints instead of green highlights
+                // Hide all alphabetic hint labels
+                for (_, view) in hintViews {
+                    view.isHidden = true
+                }
+
+                // Create numbered hint views for each match
+                for element in textMatches {
+                    let hintView = createHintLabel(for: element)
+                    self.contentView?.addSubview(hintView)
+                    elementHighlights[element.id] = hintView
+                }
+            } else {
+                // Regular text search - show green highlight boxes
+                for element in textMatches {
+                    let highlightView = createHighlightView(for: element)
+                    self.contentView?.addSubview(highlightView)
+                    elementHighlights[element.id] = highlightView
+                }
+                // Hide all hint labels when showing text matches
+                for (_, view) in hintViews {
+                    view.isHidden = true
+                }
             }
         } else {
             // Filter hint labels by prefix

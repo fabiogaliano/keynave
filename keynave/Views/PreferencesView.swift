@@ -15,6 +15,8 @@ struct PreferencesView: View {
     @AppStorage("hintSize") private var hintSize: Double = 12
     @AppStorage("hintColor") private var hintColor: String = "blue"
     @AppStorage("continuousClickMode") private var continuousClickMode: Bool = false
+    @AppStorage("autoHintDeactivation") private var autoHintDeactivation: Bool = true
+    @AppStorage("hintDeactivationDelay") private var hintDeactivationDelay: Double = 5.0
     @AppStorage("hintCharacters") private var hintCharacters: String = "asdfhjkl"
     @AppStorage("textSearchEnabled") private var textSearchEnabled: Bool = true
     @AppStorage("minSearchCharacters") private var minSearchCharacters: Int = 2
@@ -125,6 +127,31 @@ struct PreferencesView: View {
                 Text("When enabled, hint mode stays active after clicking. Continue clicking elements until you press ESC.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if continuousClickMode {
+                    HStack {
+                        HStack(spacing: 4) {
+                            Text("Auto-deactivation")
+                            helpButton(text: "Automatically exit continuous mode after a period of inactivity.")
+                        }
+                        Spacer()
+                        Toggle("", isOn: $autoHintDeactivation)
+                    }
+
+                    if autoHintDeactivation {
+                        HStack {
+                            HStack(spacing: 4) {
+                                Text("Deactivation delay")
+                                helpButton(text: "How long to wait before automatically exiting continuous mode.")
+                            }
+                            Spacer()
+                            Text("\(String(format: "%.1f", hintDeactivationDelay))s")
+                                .monospacedDigit()
+                                .frame(width: 50)
+                        }
+                        Slider(value: $hintDeactivationDelay, in: 5...30, step: 0.5)
+                    }
+                }
             }
         }
         .formStyle(.grouped)

@@ -117,6 +117,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "hintSize": 12.0,
             "hintColor": "blue",
             "continuousClickMode": false,
+            "autoHintDeactivation": true,
+            "hintDeactivationDelay": 5.0,
             "hintCharacters": "asdfhjkl", // Home row keys for hint generation
             "textSearchEnabled": true, // Enable text-based element search
             "minSearchCharacters": 2, // Minimum characters to trigger text search

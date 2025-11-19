@@ -22,6 +22,13 @@ class HintModeController {
     private var uiChangeObserver: NSObjectProtocol?
     private var isWaitingForUIChange = false
     private var refreshFallbackTask: Task<Void, Never>?
+    private var isTextSearchMode = false
+    private var numberedElements: [UIElement] = []
+
+    // Auto-deactivation timer (for continuous mode)
+    private var deactivationTimer: Timer?
+    private var autoDeactivation = false
+    private var deactivationDelay: Double = 5.0
 
     // Thread-safe state for event tap callback
     private nonisolated(unsafe) static var isHintModeActive = false
@@ -31,6 +38,8 @@ class HintModeController {
     private nonisolated(unsafe) static var pendingAction: (() -> Void)?
     private nonisolated(unsafe) static var textSearchEnabled = true
     private nonisolated(unsafe) static var minSearchChars = 2
+    private nonisolated(unsafe) static var isTextSearchActive = false
+    private nonisolated(unsafe) static var numberedElementsCount = 0
 
     // Static reference for C callback
     private static var sharedInstance: HintModeController?
@@ -124,31 +133,22 @@ class HintModeController {
     private func activateHintMode() {
         guard !isActive else { return }
 
-        let startTime = CFAbsoluteTimeGetCurrent()
+        // Load auto-deactivation settings
+        loadAutoDeactivationSettings()
 
-        // Get clickable elements (fast - only essential attributes)
-        let elementsStartTime = CFAbsoluteTimeGetCurrent()
+        // Get clickable elements
         elements = AccessibilityService.shared.getClickableElements()
-        let elementsEndTime = CFAbsoluteTimeGetCurrent()
-        print("⏱️ getClickableElements: \(String(format: "%.3f", elementsEndTime - elementsStartTime))s")
 
         guard !elements.isEmpty else {
-            print("No clickable elements found")
             return
         }
 
         // Assign hints
-        let hintsStartTime = CFAbsoluteTimeGetCurrent()
         assignHints()
-        let hintsEndTime = CFAbsoluteTimeGetCurrent()
-        print("⏱️ assignHints: \(String(format: "%.3f", hintsEndTime - hintsStartTime))s")
 
         // Show overlay with search bar
-        let overlayStartTime = CFAbsoluteTimeGetCurrent()
         overlayWindow = HintOverlayWindow(elements: elements)
         overlayWindow?.show()
-        let overlayEndTime = CFAbsoluteTimeGetCurrent()
-        print("⏱️ createOverlay: \(String(format: "%.3f", overlayEndTime - overlayStartTime))s")
 
         // Update state before starting event tap
         isActive = true
@@ -161,8 +161,8 @@ class HintModeController {
         // Start intercepting keyboard events
         startEventTap()
 
-        let totalTime = CFAbsoluteTimeGetCurrent() - startTime
-        print("⏱️ TOTAL activateHintMode: \(String(format: "%.3f", totalTime))s with \(elements.count) elements")
+        // Start auto-deactivation timer (if enabled)
+        startDeactivationTimer()
 
         // Load text attributes in background for text search
         loadTextAttributesAsync()
@@ -170,31 +170,31 @@ class HintModeController {
 
     private func loadTextAttributesAsync() {
         Task { @MainActor in
-            let loadStartTime = CFAbsoluteTimeGetCurrent()
             AccessibilityService.shared.loadTextAttributes(for: &self.elements)
-            let loadEndTime = CFAbsoluteTimeGetCurrent()
-            print("⏱️ Background text attributes loaded: \(String(format: "%.3f", loadEndTime - loadStartTime))s")
         }
     }
 
     private func deactivateHintMode() {
         guard isActive else { return }
 
-        print("Deactivating hint mode...")
-
         // Update static state first
         HintModeController.isHintModeActive = false
         HintModeController.typedInput = ""
+        HintModeController.isTextSearchActive = false
+        HintModeController.numberedElementsCount = 0
 
         // Stop UI change observer
         stopUIChangeObserver()
+
+        // Stop deactivation timer
+        deactivationTimer?.invalidate()
+        deactivationTimer = nil
 
         // Stop event tap
         stopEventTap()
 
         // Close and remove window
         if let window = overlayWindow {
-            print("Closing overlay window...")
             window.orderOut(nil)
             window.close()
         }
@@ -204,8 +204,8 @@ class HintModeController {
         elements = []
         isActive = false
         currentInput = ""
-
-        print("Hint mode deactivated successfully")
+        isTextSearchMode = false
+        numberedElements = []
     }
 
     private func startUIChangeObserver() {
@@ -226,8 +226,6 @@ class HintModeController {
                 self.handleUIChangeDetected()
             }
         }
-
-        print("✅ UI change observer started")
     }
 
     private func stopUIChangeObserver() {
@@ -244,14 +242,14 @@ class HintModeController {
         // Stop accessibility observer
         AccessibilityService.shared.stopObservingUIChanges()
         isWaitingForUIChange = false
-
-        print("🛑 UI change observer stopped")
     }
 
     private func handleUIChangeDetected() {
         guard isWaitingForUIChange && isActive else { return }
 
-        print("🔄 UI change detected, refreshing hints...")
+        let detectionTime = CFAbsoluteTimeGetCurrent()
+        print("[CONTINUOUS] UI change detected at +\(String(format: "%.0f", (detectionTime - refreshStartTime) * 1000))ms")
+
         isWaitingForUIChange = false
 
         // Cancel fallback task since we got the notification
@@ -262,29 +260,43 @@ class HintModeController {
         performHintRefresh()
     }
 
+    private var refreshStartTime: CFAbsoluteTime = 0
+
     private func performHintRefresh() {
         guard isActive else { return }
+
+        let queryStart = CFAbsoluteTimeGetCurrent()
 
         // Re-query clickable elements
         let newElements = AccessibilityService.shared.getClickableElements()
 
         guard !newElements.isEmpty else {
-            print("No clickable elements found after refresh")
             deactivateHintMode()
             return
         }
+
+        let queryEnd = CFAbsoluteTimeGetCurrent()
+        print("[CONTINUOUS] Query elements: \(String(format: "%.0f", (queryEnd - queryStart) * 1000))ms")
 
         // Update elements and reassign hints
         self.elements = newElements
         self.assignHints()
 
+        let overlayStart = CFAbsoluteTimeGetCurrent()
         // Update the overlay window
         self.overlayWindow?.updateHints(with: self.elements)
 
+        let overlayEnd = CFAbsoluteTimeGetCurrent()
+        print("[CONTINUOUS] Update overlay: \(String(format: "%.0f", (overlayEnd - overlayStart) * 1000))ms")
+
+        let totalTime = CFAbsoluteTimeGetCurrent() - refreshStartTime
+        print("[CONTINUOUS] Total refresh time: \(String(format: "%.0f", totalTime * 1000))ms\n")
+
+        // Restart auto-deactivation timer after refresh
+        startDeactivationTimer()
+
         // Load text attributes for new elements (enables text search)
         self.loadTextAttributesAsync()
-
-        print("✅ Hints refreshed with \(newElements.count) elements")
     }
 
     private func assignHints() {
@@ -321,6 +333,13 @@ class HintModeController {
         // Assign to elements
         for i in 0..<elements.count {
             elements[i].hint = hints[i]
+        }
+    }
+
+    private func assignNumberedHints(to elements: inout [UIElement]) {
+        // Assign numbered hints (1-9) to elements
+        for i in 0..<min(elements.count, 9) {
+            elements[i].hint = "\(i + 1)"
         }
     }
 
@@ -407,15 +426,41 @@ class HintModeController {
                     return nil // Consume the event
                 }
 
+                // Number keys (1-9) during text search mode - immediate selection
+                if HintModeController.isTextSearchActive {
+                    let numberKeyMap: [Int64: Int] = [
+                        18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9
+                    ]
+
+                    if let number = numberKeyMap[keyCode], number <= HintModeController.numberedElementsCount {
+                        // Number pressed in text search mode - select that numbered element
+                        DispatchQueue.main.async {
+                            HintModeController.sharedInstance?.selectNumberedElement(number)
+                        }
+                        return nil // Consume the event
+                    }
+                }
+
                 // Convert keycode to character
-                guard let character = HintModeController.keyCodeToCharacter(keyCode) else {
+                guard var character = HintModeController.keyCodeToCharacter(keyCode) else {
                     return Unmanaged.passRetained(event) // Pass through non-character keys
+                }
+
+                // Handle shift modifier for underscore (shift + hyphen = underscore)
+                if keyCode == 27 && flags.contains(.maskShift) {
+                    character = "_"
                 }
 
                 let lowerChar = character.lowercased()
 
-                // Accept all alphanumeric characters for text search
-                guard lowerChar.count == 1, lowerChar.first?.isLetter == true || lowerChar.first?.isNumber == true else {
+                // Accept alphanumeric and common symbols for text search
+                guard lowerChar.count == 1 else {
+                    return Unmanaged.passRetained(event)
+                }
+
+                let char = lowerChar.first!
+                let isValidChar = char.isLetter || char.isNumber || "-._".contains(char)
+                guard isValidChar else {
                     return Unmanaged.passRetained(event)
                 }
 
@@ -434,7 +479,6 @@ class HintModeController {
         )
 
         guard let eventTap = eventTap else {
-            print("Failed to create event tap. Make sure Accessibility permissions are granted.")
             return
         }
 
@@ -445,8 +489,6 @@ class HintModeController {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-
-        print("Event tap started")
     }
 
     private func stopEventTap() {
@@ -461,8 +503,6 @@ class HintModeController {
         eventTap = nil
         runLoopSource = nil
         HintModeController.currentEventTap = nil
-
-        print("Event tap stopped")
     }
 
     private func processInput(_ input: String) {
@@ -496,7 +536,7 @@ class HintModeController {
 
         // If no hint matches, try text search (if enabled and input is long enough)
         if HintModeController.textSearchEnabled && input.count >= HintModeController.minSearchChars {
-            let textMatches = searchElementsByText(input)
+            var textMatches = searchElementsByText(input)
 
             if textMatches.count == 1 {
                 // Single match - auto-click
@@ -508,14 +548,37 @@ class HintModeController {
                 // No text matches either, show "no matches" state
                 overlayWindow?.filterHints(matching: "", textMatches: [])
                 overlayWindow?.updateMatchCount(0)
+                isTextSearchMode = false
+                numberedElements = []
+                HintModeController.isTextSearchActive = false
+                HintModeController.numberedElementsCount = 0
+            } else if textMatches.count <= 9 {
+                // 2-9 matches - activate numbered hints mode
+                isTextSearchMode = true
+                numberedElements = textMatches
+                assignNumberedHints(to: &textMatches)
+                HintModeController.isTextSearchActive = true
+                HintModeController.numberedElementsCount = textMatches.count
+
+                // Pass numbered elements to overlay for rendering
+                overlayWindow?.filterHints(matching: "", textMatches: textMatches, numberedMode: true)
+                overlayWindow?.updateMatchCount(textMatches.count)
             } else {
-                // Multiple text matches - highlight them and show count
+                // More than 9 matches - use regular text search highlighting
                 overlayWindow?.filterHints(matching: "", textMatches: textMatches)
                 overlayWindow?.updateMatchCount(textMatches.count)
+                isTextSearchMode = false
+                numberedElements = []
+                HintModeController.isTextSearchActive = false
+                HintModeController.numberedElementsCount = 0
             }
         } else {
             // Not enough characters for text search, reset display
             overlayWindow?.filterHints(matching: "", textMatches: [])
+            isTextSearchMode = false
+            numberedElements = []
+            HintModeController.isTextSearchActive = false
+            HintModeController.numberedElementsCount = 0
         }
     }
 
@@ -524,6 +587,19 @@ class HintModeController {
         HintModeController.typedInput = ""
         overlayWindow?.updateSearchBar(text: "")
         overlayWindow?.updateMatchCount(-1)
+    }
+
+    private func selectNumberedElement(_ number: Int) {
+        guard isTextSearchMode, number > 0, number <= numberedElements.count else { return }
+
+        let element = numberedElements[number - 1] // Convert 1-indexed to 0-indexed
+        performClick(on: element)
+        clearInputState()
+        isTextSearchMode = false
+        numberedElements = []
+        HintModeController.isTextSearchActive = false
+        HintModeController.numberedElementsCount = 0
+        handlePostClick()
     }
 
     private func searchElementsByText(_ searchText: String) -> [UIElement] {
@@ -572,10 +648,14 @@ class HintModeController {
         )
 
         ClickService.shared.rightClick(at: clickPoint)
+
+        // Restart auto-deactivation timer after successful click
+        startDeactivationTimer()
     }
 
     private func refreshHints() {
-        print("Refreshing hints for continuous mode...")
+        refreshStartTime = CFAbsoluteTimeGetCurrent()
+        print("[CONTINUOUS] Click performed, starting refresh...")
 
         // Reset input state
         currentInput = ""
@@ -591,15 +671,13 @@ class HintModeController {
             do {
                 try await Task.sleep(for: .seconds(3))
                 guard self.isWaitingForUIChange && self.isActive else { return }
-                print("⚠️ No UI change detected, performing fallback refresh...")
+                print("[CONTINUOUS] No UI change detected after 3s, performing fallback refresh...")
                 self.isWaitingForUIChange = false
                 self.performHintRefresh()
             } catch {
                 // Task was cancelled, which is fine
             }
         }
-
-        print("⏳ Waiting for UI changes...")
     }
 
     nonisolated private static func keyCodeToCharacter(_ keyCode: Int64) -> String? {
@@ -610,7 +688,8 @@ class HintModeController {
             16: "y", 17: "t", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
             23: "5", 24: "=", 25: "9", 26: "7", 27: "-", 28: "8", 29: "0",
             30: "]", 31: "o", 32: "u", 33: "[", 34: "i", 35: "p", 37: "l",
-            38: "j", 40: "k", 41: ";", 43: ",", 45: "n", 46: "m"
+            38: "j", 40: "k", 41: ";", 43: ",", 45: "n", 46: "m", 47: ".",
+            50: "`"
         ]
 
         return keyMap[keyCode]
@@ -625,5 +704,32 @@ class HintModeController {
         )
 
         ClickService.shared.click(at: clickPoint)
+
+        // Restart auto-deactivation timer after successful click
+        startDeactivationTimer()
+    }
+
+    // MARK: - Auto-Deactivation Timer
+
+    private func startDeactivationTimer() {
+        let continuousMode = UserDefaults.standard.bool(forKey: "continuousClickMode")
+        guard continuousMode && autoDeactivation else { return }
+
+        deactivationTimer?.invalidate()
+        deactivationTimer = Timer.scheduledTimer(withTimeInterval: deactivationDelay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.deactivateHintMode()
+            }
+        }
+    }
+
+    private func loadAutoDeactivationSettings() {
+        autoDeactivation = UserDefaults.standard.bool(forKey: "autoHintDeactivation")
+        deactivationDelay = UserDefaults.standard.double(forKey: "hintDeactivationDelay")
+
+        // Default to 5.0 if not set
+        if deactivationDelay == 0 {
+            deactivationDelay = 5.0
+        }
     }
 }
