@@ -402,10 +402,19 @@ class HintModeController {
                     return Unmanaged.passRetained(event)
                 }
 
-                // Escape key (keycode 53) - deactivate
+                // Escape key (keycode 53) - two-stage behavior
                 if keyCode == 53 {
-                    DispatchQueue.main.async {
-                        HintModeController.sharedInstance?.deactivateHintMode()
+                    if !HintModeController.typedInput.isEmpty {
+                        // First ESC: Clear search, stay in hint mode
+                        HintModeController.typedInput = ""
+                        DispatchQueue.main.async {
+                            HintModeController.sharedInstance?.processInput("")
+                        }
+                    } else {
+                        // Second ESC: Exit hint mode
+                        DispatchQueue.main.async {
+                            HintModeController.sharedInstance?.deactivateHintMode()
+                        }
                     }
                     return nil // Consume the event
                 }
