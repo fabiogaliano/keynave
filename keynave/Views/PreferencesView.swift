@@ -29,6 +29,7 @@ struct PreferencesView: View {
     @AppStorage("highlightTextHex") private var highlightTextHex: String = "#FFFF00"
     @AppStorage("hintBackgroundOpacity") private var hintBackgroundOpacity: Double = 0.3
     @AppStorage("hintBorderOpacity") private var hintBorderOpacity: Double = 0.6
+    @AppStorage("hintHorizontalOffset") private var hintHorizontalOffset: Double = -25.0
 
     // Scroll Mode Settings
     @AppStorage("scrollShortcutKeyCode") private var scrollShortcutKeyCode: Int = 14 // E
@@ -351,6 +352,24 @@ struct PreferencesView: View {
                 }
             }
 
+            Section("Positioning") {
+                VStack(alignment: .leading) {
+                    HStack {
+                        HStack(spacing: 4) {
+                            Text("Horizontal offset")
+                            helpButton(text: "Shift hints horizontally to avoid covering text. Negative values move left (over icons), positive values move right. Default: -25px positions hints over icons in list views.")
+                        }
+                        Spacer()
+                    }
+                    HStack {
+                        Text("\(Int(hintHorizontalOffset))px")
+                            .monospacedDigit()
+                            .frame(width: 60, alignment: .trailing)
+                        Slider(value: $hintHorizontalOffset, in: -200...200, step: 5)
+                    }
+                }
+            }
+
             Section {
                 Button("Reset to Defaults") {
                     hintBackgroundHex = "#3B82F6"
@@ -360,6 +379,7 @@ struct PreferencesView: View {
                     hintBackgroundOpacity = 0.3
                     hintBorderOpacity = 0.6
                     hintSize = 12
+                    hintHorizontalOffset = -25.0
                 }
             }
         }

@@ -129,6 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "highlightTextHex": "#FFFF00", // Yellow highlight
             "hintBackgroundOpacity": 0.3,
             "hintBorderOpacity": 0.6,
+            "hintHorizontalOffset": -25.0,
             "scrollShortcutKeyCode": 14, // E key
             "scrollShortcutModifiers": optionKey,
             "scrollArrowMode": "select",

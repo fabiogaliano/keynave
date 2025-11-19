@@ -129,7 +129,10 @@ class HintOverlayWindow: NSWindow {
         glassContainer.addSubview(label)
 
         // Position hint overlapping the element (top-left corner, inside the element)
-        let x = element.frame.minX
+        // Apply horizontal offset from preferences (negative = left, positive = right)
+        let horizontalOffset = UserDefaults.standard.double(forKey: "hintHorizontalOffset")
+        let offsetValue = horizontalOffset != 0 ? CGFloat(horizontalOffset) : -25.0
+        let x = element.frame.minX + offsetValue
         let y = element.frame.maxY - height  // Place at top of element (maxY in flipped coords)
 
         glassContainer.frame = CGRect(x: x, y: y, width: width, height: height)
