@@ -20,6 +20,7 @@ struct PreferencesView: View {
     @AppStorage("hintCharacters") private var hintCharacters: String = "asdfhjkl"
     @AppStorage("textSearchEnabled") private var textSearchEnabled: Bool = true
     @AppStorage("minSearchCharacters") private var minSearchCharacters: Int = 2
+    @AppStorage("manualRefreshTrigger") private var manualRefreshTrigger: String = "rr"
 
     // Appearance Settings
     @AppStorage("hintBackgroundHex") private var hintBackgroundHex: String = "#3B82F6"
@@ -120,6 +121,20 @@ struct PreferencesView: View {
                             .frame(width: 80)
                     }
                 }
+
+                HStack {
+                    HStack(spacing: 4) {
+                        Text("Manual refresh trigger")
+                        helpButton(text: "Type this text to manually refresh hints. Useful if UI changed but hints didn't update. Works in both normal and continuous mode.")
+                    }
+                    Spacer()
+                    TextField("rr", text: $manualRefreshTrigger)
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.center)
+                        .font(.system(.body, design: .monospaced))
+                }
+                .padding(.top, 4)
             }
 
             Section("Behavior") {

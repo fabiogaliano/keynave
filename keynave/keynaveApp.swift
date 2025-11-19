@@ -122,6 +122,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "hintCharacters": "asdfhjkl", // Home row keys for hint generation
             "textSearchEnabled": true, // Enable text-based element search
             "minSearchCharacters": 2, // Minimum characters to trigger text search
+            "manualRefreshTrigger": "rr", // Trigger phrase to manually refresh hints
             "hintBackgroundHex": "#3B82F6", // Blue background tint
             "hintBorderHex": "#3B82F6", // Blue border
             "hintTextHex": "#FFFFFF", // White text

@@ -32,6 +32,10 @@ class ChromiumDetector: AppSpecificDetector {
 
     var priority: Int { 100 } // High priority for early execution
 
+    // Chromium apps need longer delays due to heavy rendering pipeline
+    var optimisticRefreshDelay: TimeInterval? { 0.200 } // 200ms
+    var fallbackRefreshDelay: TimeInterval? { 0.300 }   // 300ms additional
+
     func detect(
         windows: [AXUIElement],
         appElement: AXUIElement,

@@ -53,9 +53,21 @@ protocol AppSpecificDetector {
         onAreaFound: ((ScrollableArea) -> Void)?,
         maxAreas: Int?
     ) -> DetectionResult
+
+    /// Optional: App-specific refresh delay for continuous hint mode (optimistic attempt)
+    /// Return nil to use default (50ms)
+    var optimisticRefreshDelay: TimeInterval? { get }
+
+    /// Optional: App-specific fallback refresh delay for continuous hint mode
+    /// Return nil to use default (100ms additional)
+    var fallbackRefreshDelay: TimeInterval? { get }
 }
 
 extension AppSpecificDetector {
     /// Default priority
     var priority: Int { 0 }
+
+    /// Default: no custom refresh delays (use global defaults)
+    var optimisticRefreshDelay: TimeInterval? { nil }
+    var fallbackRefreshDelay: TimeInterval? { nil }
 }

@@ -45,6 +45,24 @@ class DetectorRegistry {
         bundleIdToDetectors[bundleId] != nil
     }
 
+    /// Get app-specific refresh delays for continuous hint mode
+    /// Returns nil if no custom delays configured (use defaults)
+    func refreshDelays(for bundleIdentifier: String?) -> (optimistic: TimeInterval, fallback: TimeInterval)? {
+        guard let bundleId = bundleIdentifier else { return nil }
+
+        let detectors = detectorsForBundleId(bundleId)
+
+        // Use first detector with custom delays (detectors are priority-sorted)
+        for detector in detectors {
+            if let optimistic = detector.optimisticRefreshDelay,
+               let fallback = detector.fallbackRefreshDelay {
+                return (optimistic, fallback)
+            }
+        }
+
+        return nil
+    }
+
     private func registerDefaultDetectors() {
         // Register Chromium detector
         register(ChromiumDetector())

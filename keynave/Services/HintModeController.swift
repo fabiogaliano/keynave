@@ -24,11 +24,16 @@ class HintModeController {
     private var refreshFallbackTask: Task<Void, Never>?
     private var isTextSearchMode = false
     private var numberedElements: [UIElement] = []
+    private var previousElementCount = 0
 
     // Auto-deactivation timer (for continuous mode)
     private var deactivationTimer: Timer?
     private var autoDeactivation = false
     private var deactivationDelay: Double = 5.0
+
+    // Default refresh delays for continuous mode
+    private static let defaultOptimisticDelay: TimeInterval = 0.050 // 50ms
+    private static let defaultFallbackDelay: TimeInterval = 0.100   // 100ms additional
 
     // Thread-safe state for event tap callback
     private nonisolated(unsafe) static var isHintModeActive = false
@@ -40,6 +45,7 @@ class HintModeController {
     private nonisolated(unsafe) static var minSearchChars = 2
     private nonisolated(unsafe) static var isTextSearchActive = false
     private nonisolated(unsafe) static var numberedElementsCount = 0
+    private nonisolated(unsafe) static var refreshTrigger = "rr"
 
     // Static reference for C callback
     private static var sharedInstance: HintModeController?
@@ -153,10 +159,12 @@ class HintModeController {
         // Update state before starting event tap
         isActive = true
         currentInput = ""
+        previousElementCount = elements.count
         HintModeController.isHintModeActive = true
         HintModeController.typedInput = ""
         HintModeController.textSearchEnabled = UserDefaults.standard.bool(forKey: "textSearchEnabled")
         HintModeController.minSearchChars = UserDefaults.standard.integer(forKey: "minSearchCharacters")
+        HintModeController.refreshTrigger = UserDefaults.standard.string(forKey: "manualRefreshTrigger") ?? "rr"
 
         // Start intercepting keyboard events
         startEventTap()
@@ -262,8 +270,9 @@ class HintModeController {
 
     private var refreshStartTime: CFAbsoluteTime = 0
 
-    private func performHintRefresh() {
-        guard isActive else { return }
+    @discardableResult
+    private func performHintRefresh() -> Bool {
+        guard isActive else { return false }
 
         let queryStart = CFAbsoluteTimeGetCurrent()
 
@@ -272,14 +281,18 @@ class HintModeController {
 
         guard !newElements.isEmpty else {
             deactivateHintMode()
-            return
+            return false
         }
 
         let queryEnd = CFAbsoluteTimeGetCurrent()
         print("[CONTINUOUS] Query elements: \(String(format: "%.0f", (queryEnd - queryStart) * 1000))ms")
 
+        // Check if UI actually changed (compare element count)
+        let uiChanged = newElements.count != previousElementCount
+
         // Update elements and reassign hints
         self.elements = newElements
+        self.previousElementCount = newElements.count
         self.assignHints()
 
         let overlayStart = CFAbsoluteTimeGetCurrent()
@@ -297,6 +310,8 @@ class HintModeController {
 
         // Load text attributes for new elements (enables text search)
         self.loadTextAttributesAsync()
+
+        return uiChanged
     }
 
     private func assignHints() {
@@ -513,6 +528,14 @@ class HintModeController {
         // Update search bar display
         overlayWindow?.updateSearchBar(text: input)
 
+        // Check for manual refresh trigger
+        if input == HintModeController.refreshTrigger {
+            print("[MANUAL] Refresh trigger detected: \"\(input)\"")
+            clearInputState()
+            performManualRefresh()
+            return
+        }
+
         // Check for exact hint match first
         if let matchedElement = elements.first(where: { $0.hint == input }) {
             // Update overlay to show the completed match with full highlighting
@@ -661,23 +684,84 @@ class HintModeController {
         currentInput = ""
         HintModeController.typedInput = ""
 
-        // Start observing for UI changes
-        startUIChangeObserver()
-        isWaitingForUIChange = true
+        // Store current element count for comparison
+        previousElementCount = elements.count
 
-        // Set up a fallback timeout in case no UI changes are detected
-        // This handles cases where AX notifications don't fire (rare but possible)
-        refreshFallbackTask = Task { @MainActor in
+        // Get app-specific refresh delays
+        let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let delays = DetectorRegistry.shared.refreshDelays(for: bundleId)
+
+        let optimisticDelay = delays?.optimistic ?? HintModeController.defaultOptimisticDelay
+        let fallbackDelay = delays?.fallback ?? HintModeController.defaultFallbackDelay
+
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+        print("[CONTINUOUS] App: \(appName) | Delays: optimistic=\(Int(optimisticDelay * 1000))ms, fallback=\(Int(fallbackDelay * 1000))ms")
+
+        // Optimistic + fallback refresh strategy with app-specific timing
+        Task { @MainActor in
             do {
-                try await Task.sleep(for: .seconds(3))
-                guard self.isWaitingForUIChange && self.isActive else { return }
-                print("[CONTINUOUS] No UI change detected after 3s, performing fallback refresh...")
-                self.isWaitingForUIChange = false
-                self.performHintRefresh()
+                // Optimistic attempt with app-specific timing
+                try await Task.sleep(for: .seconds(optimisticDelay))
+                guard self.isActive else { return }
+
+                let optimisticTime = CFAbsoluteTimeGetCurrent()
+                print("[CONTINUOUS] Optimistic refresh at +\(String(format: "%.0f", (optimisticTime - refreshStartTime) * 1000))ms")
+
+                let uiChanged = self.performHintRefresh()
+
+                if uiChanged {
+                    // UI changed quickly, we're done!
+                    print("[CONTINUOUS] UI changed: YES (\(self.elements.count) elements)")
+                    return
+                }
+
+                // UI hasn't changed yet, wait longer with app-specific fallback
+                print("[CONTINUOUS] UI changed: NO (still \(self.elements.count) elements)")
+                try await Task.sleep(for: .seconds(fallbackDelay))
+                guard self.isActive else { return }
+
+                let fallbackTime = CFAbsoluteTimeGetCurrent()
+                print("[CONTINUOUS] Fallback refresh at +\(String(format: "%.0f", (fallbackTime - refreshStartTime) * 1000))ms")
+
+                // Perform final refresh (assume it worked this time)
+                _ = self.performHintRefresh()
+
             } catch {
                 // Task was cancelled, which is fine
             }
         }
+    }
+
+    private func performManualRefresh() {
+        guard isActive else { return }
+
+        let manualStartTime = CFAbsoluteTimeGetCurrent()
+
+        // Re-query clickable elements
+        let newElements = AccessibilityService.shared.getClickableElements()
+
+        guard !newElements.isEmpty else {
+            deactivateHintMode()
+            return
+        }
+
+        // Update elements and reassign hints
+        self.elements = newElements
+        self.previousElementCount = newElements.count
+        self.assignHints()
+
+        // Update the overlay window
+        self.overlayWindow?.updateHints(with: self.elements)
+
+        let manualEndTime = CFAbsoluteTimeGetCurrent()
+        let totalTime = (manualEndTime - manualStartTime) * 1000
+        print("[MANUAL] Refreshed \(newElements.count) elements in \(String(format: "%.0f", totalTime))ms\n")
+
+        // Restart auto-deactivation timer after manual refresh
+        startDeactivationTimer()
+
+        // Load text attributes for new elements (enables text search)
+        self.loadTextAttributesAsync()
     }
 
     nonisolated private static func keyCodeToCharacter(_ keyCode: Int64) -> String? {
