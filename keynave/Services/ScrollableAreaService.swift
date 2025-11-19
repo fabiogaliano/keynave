@@ -131,10 +131,8 @@ class ScrollableAreaService {
                     if newSize > existingSize {
                         // New area is larger, remove existing
                         indicesToRemove.append(index)
-                        print("[DEBUG] REMOVING vertical section (new is larger): \(existing.frame)")
                     } else {
                         // Existing is larger, skip new
-                        print("[DEBUG] SKIP vertical section (existing is larger): \(newArea.frame)")
                         return false
                     }
                 }
@@ -144,7 +142,6 @@ class ScrollableAreaService {
 
         // Remove marked areas (in reverse order to maintain indices)
         for index in indicesToRemove.reversed() {
-            print("[DEBUG] REMOVING nested: \(areas[index].frame)")
             areas.remove(at: index)
         }
 
@@ -156,7 +153,8 @@ class ScrollableAreaService {
         var elementCount = 0
 
         guard let focusedApp = NSWorkspace.shared.frontmostApplication,
-              let pid = focusedApp.processIdentifier as pid_t? else {
+              let pid = focusedApp.processIdentifier as pid_t?,
+              let bundleId = focusedApp.bundleIdentifier else {
             return []
         }
 
@@ -171,10 +169,40 @@ class ScrollableAreaService {
             return []
         }
 
-        // Process each window
-        for (_, window) in windows.enumerated() {
-            guard !shouldStop else { break }
-            traverseElement(window, into: &areas, depth: 0, maxDepth: 10, elementCount: &elementCount, onAreaFound: onAreaFound, shouldStop: &shouldStop, maxAreas: maxAreas)
+        // Try app-specific detection first
+        let detectors = DetectorRegistry.shared.detectorsForBundleId(bundleId)
+        var shouldContinueNormalTraversal = true
+
+        for detector in detectors {
+            let result = detector.detect(
+                windows: windows,
+                appElement: appElement,
+                bundleIdentifier: bundleId,
+                onAreaFound: onAreaFound,
+                maxAreas: maxAreas
+            )
+
+            // Add any areas found by the detector
+            areas.append(contentsOf: result.areas)
+
+            // Check if we should stop
+            if let max = maxAreas, areas.count >= max {
+                return areas
+            }
+
+            // If detector says skip normal traversal, note it
+            if !result.shouldContinueNormalTraversal {
+                shouldContinueNormalTraversal = false
+                break
+            }
+        }
+
+        // Continue with normal traversal if detectors allow it
+        if shouldContinueNormalTraversal {
+            for (_, window) in windows.enumerated() {
+                guard !shouldStop else { break }
+                traverseElement(window, into: &areas, depth: 0, maxDepth: 10, elementCount: &elementCount, onAreaFound: onAreaFound, shouldStop: &shouldStop, maxAreas: maxAreas)
+            }
         }
 
         return areas
@@ -338,27 +366,16 @@ class ScrollableAreaService {
             return
         }
 
-        // Log web content traversal and check AXURL
-        if role == "AXWebArea" {
-            var urlRef: CFTypeRef?
-            let urlResult = AXUIElementCopyAttributeValue(element, "AXURL" as CFString, &urlRef)
-            if urlResult == .success, let url = urlRef as? String {
-                print("[DEBUG-TRAVERSE] depth:\(depth) role:AXWebArea HAS_AXURL: \(url)")
-            } else {
-                print("[DEBUG-TRAVERSE] depth:\(depth) role:AXWebArea AXURL status:\(urlResult.rawValue)")
-            }
-        }
-
         // Check if element is scrollable (with validation for progressive discovery)
         let hasScrollableRole = scrollableRoles.contains(role)
-        let hasEnabledScrollBars = hasScrollBars(element, validateEnabled: true, logDetails: false)
+        let hasEnabledScrollBars = hasScrollBars(element, validateEnabled: true)
 
         // For progressive discovery, require either a scrollable role with enabled scrollbars, or just enabled scrollbars
         if hasScrollableRole || hasEnabledScrollBars {
             // If it has a scrollable role but no enabled scrollbars, check if it's web content
             if hasScrollableRole && !hasEnabledScrollBars {
                 // Check if this is web content - web scrollables don't expose native scrollbar attributes
-                let isWebContent = hasWebAncestor(element, logChain: false)
+                let isWebContent = hasWebAncestor(element)
 
                 if isWebContent {
                     // Web scrollables are accepted without native scrollbar validation
@@ -370,8 +387,6 @@ class ScrollableAreaService {
 
                             // Use centralized area filtering logic
                             if shouldAddArea(area, to: &areas) {
-                                print("[DEBUG] ADDED WEB: \(area.frame) role:\(role)")
-
                                 areas.append(area)
                                 onAreaFound?(area)
 
@@ -379,26 +394,8 @@ class ScrollableAreaService {
                                     shouldStop = true
                                     return
                                 }
-                            } else {
-                                print("[DEBUG] SKIP nested: \(area.frame) role:\(role)")
                             }
                         }
-                    }
-                } else {
-                    // Native scrollable with no enabled scrollbars - reject it
-                    if let area = createScrollableArea(from: element) {
-                        // Check parent for debug logging
-                        var parentRole: String? = nil
-                        var parentRef: CFTypeRef?
-                        if AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parentRef) == .success,
-                           let parent = parentRef as! AXUIElement?,
-                           AXUIElementCopyAttributeValue(parent, kAXRoleAttribute as CFString, &roleRef) == .success,
-                           let pRole = roleRef as? String {
-                            parentRole = pRole
-                        }
-
-                        let parentInfo = parentRole.map { " parent:\($0)" } ?? ""
-                        print("[DEBUG-REJECT] role:\(role) frame:\(area.frame)\(parentInfo) isWeb:false reason:no_enabled_scrollbars")
                     }
                 }
             } else if let area = createScrollableArea(from: element) {
@@ -409,11 +406,6 @@ class ScrollableAreaService {
 
                     // Use centralized area filtering logic
                     if shouldAddArea(area, to: &areas) {
-                        let info = getElementInfo(element, logURL: false)
-                        let webIndicator = info.hasURL ? " [WEB]" : ""
-                        let parentInfo = info.parentRole.map { " parent:\($0)" } ?? ""
-                        print("[DEBUG] ADDED: \(area.frame) role:\(role)\(webIndicator)\(parentInfo)")
-
                         areas.append(area)
                         onAreaFound?(area)
 
@@ -421,8 +413,6 @@ class ScrollableAreaService {
                             shouldStop = true
                             return
                         }
-                    } else {
-                        print("[DEBUG] SKIP nested: \(area.frame) role:\(role)")
                     }
                 }
             }
@@ -441,7 +431,7 @@ class ScrollableAreaService {
         }
     }
 
-    private func hasScrollBars(_ element: AXUIElement, validateEnabled: Bool = false, logDetails: Bool = false) -> Bool {
+    private func hasScrollBars(_ element: AXUIElement, validateEnabled: Bool = false) -> Bool {
         // Check for vertical scroll bar
         var vScrollBarRef: CFTypeRef?
         let hasVScroll = AXUIElementCopyAttributeValue(element, "AXVerticalScrollBar" as CFString, &vScrollBarRef) == .success
@@ -450,10 +440,6 @@ class ScrollableAreaService {
         var hScrollBarRef: CFTypeRef?
         let hasHScroll = AXUIElementCopyAttributeValue(element, "AXHorizontalScrollBar" as CFString, &hScrollBarRef) == .success
 
-        if logDetails && (hasVScroll || hasHScroll) {
-            print("[DEBUG-SCROLLBAR] Found scrollbars: V=\(hasVScroll) H=\(hasHScroll)")
-        }
-
         // If validation is not requested, just check for presence
         if !validateEnabled {
             return hasVScroll || hasHScroll
@@ -461,14 +447,11 @@ class ScrollableAreaService {
 
         // Validate that at least one scroll bar is actually enabled (has scrollable content)
         var isEnabled = false
-        var vEnabledValue: Bool? = nil
-        var hEnabledValue: Bool? = nil
 
         if hasVScroll, let vScrollBar = vScrollBarRef as! AXUIElement? {
             var enabledRef: CFTypeRef?
             let result = AXUIElementCopyAttributeValue(vScrollBar, kAXEnabledAttribute as CFString, &enabledRef)
             if result == .success, let enabled = enabledRef as? Bool {
-                vEnabledValue = enabled
                 if enabled {
                     isEnabled = true
                 }
@@ -479,23 +462,17 @@ class ScrollableAreaService {
             var enabledRef: CFTypeRef?
             let result = AXUIElementCopyAttributeValue(hScrollBar, kAXEnabledAttribute as CFString, &enabledRef)
             if result == .success, let enabled = enabledRef as? Bool {
-                hEnabledValue = enabled
                 if enabled {
                     isEnabled = true
                 }
             }
         }
 
-        if logDetails {
-            print("[DEBUG-SCROLLBAR] AXEnabled values: V=\(vEnabledValue?.description ?? "nil") H=\(hEnabledValue?.description ?? "nil") → result=\(isEnabled)")
-        }
-
         return isEnabled
     }
 
-    private func hasWebAncestor(_ element: AXUIElement, logChain: Bool = false) -> Bool {
+    private func hasWebAncestor(_ element: AXUIElement) -> Bool {
         var currentElement = element
-        var chain: [String] = []
         let maxLevels = 10
 
         for _ in 0..<maxLevels {
@@ -505,12 +482,7 @@ class ScrollableAreaService {
                 break
             }
 
-            chain.append(role)
-
             if role == "AXWebArea" {
-                if logChain {
-                    print("[DEBUG-PARENT-CHAIN] \(chain.joined(separator: " → ")) ✓ WEB")
-                }
                 return true
             }
 
@@ -524,44 +496,9 @@ class ScrollableAreaService {
             currentElement = parent
         }
 
-        if logChain && !chain.isEmpty {
-            print("[DEBUG-PARENT-CHAIN] \(chain.joined(separator: " → ")) ✗ NOT WEB")
-        }
-
         return false
     }
 
-    private func getElementInfo(_ element: AXUIElement, logURL: Bool = false) -> (role: String, hasURL: Bool, parentRole: String?) {
-        var role = "unknown"
-        var roleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
-           let roleStr = roleRef as? String {
-            role = roleStr
-        }
-
-        var hasURL = false
-        var urlRef: CFTypeRef?
-        let urlResult = AXUIElementCopyAttributeValue(element, "AXURL" as CFString, &urlRef)
-        if urlResult == .success {
-            hasURL = true
-            if logURL {
-                print("[DEBUG-WEB] AXURL query SUCCESS on role:\(role)")
-            }
-        } else if logURL {
-            print("[DEBUG-WEB] AXURL query FAILED on role:\(role) status:\(urlResult.rawValue)")
-        }
-
-        var parentRole: String? = nil
-        var parentRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parentRef) == .success,
-           let parent = parentRef as! AXUIElement?,
-           AXUIElementCopyAttributeValue(parent, kAXRoleAttribute as CFString, &roleRef) == .success,
-           let parentRoleStr = roleRef as? String {
-            parentRole = parentRoleStr
-        }
-
-        return (role, hasURL, parentRole)
-    }
 
     private func createScrollableArea(from axElement: AXUIElement) -> ScrollableArea? {
         // Get position

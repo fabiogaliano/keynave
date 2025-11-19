@@ -266,7 +266,6 @@ class ScrollModeController {
                        abs(area.frame.origin.y - focusedFrame.origin.y) < 10 &&
                        abs(area.frame.width - focusedFrame.width) < 10 &&
                        abs(area.frame.height - focusedFrame.height) < 10 {
-                        print("[DEBUG] SKIP duplicate")
                         return
                     }
 
@@ -295,7 +294,6 @@ class ScrollModeController {
 
                             if sameXOrigin {
                                 shouldAddNewArea = false
-                                print("[DEBUG] SKIP nested (same X origin)")
                                 break
                             }
 
@@ -306,7 +304,6 @@ class ScrollModeController {
 
                             if sizeRatio > 0.7 {
                                 shouldAddNewArea = false
-                                print("[DEBUG] SKIP nested (size ratio: \(String(format: "%.2f", sizeRatio)))")
                                 break
                             }
                         }
@@ -322,7 +319,6 @@ class ScrollModeController {
 
                             if sameXOrigin {
                                 removedAreas.append((index, existing.hint))
-                                print("[DEBUG] REMOVING nested (same X origin): hint #\(existing.hint)")
                             } else {
                                 // Otherwise, only remove if >70% the size (near-duplicate)
                                 let newSize = area.frame.width * area.frame.height
@@ -347,10 +343,8 @@ class ScrollModeController {
                             if newSize > existingSize {
                                 // New area is larger, remove existing
                                 removedAreas.append((index, existing.hint))
-                                print("[DEBUG] REMOVING vertical section (new is larger): hint #\(existing.hint)")
                             } else {
                                 // Existing is larger, skip new
-                                print("[DEBUG] SKIP vertical section (existing is larger)")
                                 shouldAddNewArea = false
                                 break
                             }
@@ -364,7 +358,6 @@ class ScrollModeController {
                     // Remove nested areas (in reverse order)
                     if !removedAreas.isEmpty {
                         for (index, hint) in removedAreas.reversed() {
-                            print("[DEBUG] REMOVING nested area (was hint #\(hint))")
                             self.overlayWindow?.removeArea(withHint: hint)
                             self.areas.remove(at: index)
                         }
@@ -444,7 +437,6 @@ class ScrollModeController {
             if oldHint != newHint {
                 areas[i].hint = newHint
                 overlayWindow?.updateHint(oldHint: oldHint, newHint: newHint)
-                print("[DEBUG] Resequenced hint #\(oldHint) → #\(newHint)")
             }
         }
 
